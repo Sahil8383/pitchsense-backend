@@ -96,6 +96,79 @@ export class SessionsService {
     return buyerMessage;
   }
 
+  async *sendMessageStream(
+    sessionId: string,
+    content: string,
+  ): AsyncGenerator<
+    { type: 'delta'; delta: string } | { type: 'done'; message: Message }
+  > {
+    const session = this.storage.getSessionById(sessionId);
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    if (session.status !== 'active') {
+      throw new BadRequestException('Session already completed');
+    }
+    if (!content?.trim()) {
+      throw new BadRequestException('Content cannot be empty');
+    }
+
+    const now = new Date().toISOString();
+    const sellerWordCount = content.trim()
+      ? content.trim().split(/\s+/).length
+      : 0;
+    const sellerMessage: Message = {
+      id: crypto.randomUUID(),
+      role: 'seller',
+      content: content.trim(),
+      timestamp: now,
+      wordCount: sellerWordCount,
+    };
+    const updatedMessages = [...session.messages, sellerMessage];
+    const lastSellerIndex = updatedMessages.findLastIndex(
+      (m) => m.role === 'seller',
+    );
+    this.storage.updateSession(sessionId, {
+      messages: updatedMessages,
+    });
+    const updatedSession = this.storage.getSessionById(sessionId)!;
+
+    const analyticsPayload = this.analytics.compute(
+      updatedSession.messages,
+      lastSellerIndex,
+      null,
+    );
+    this.analyticsGateway.broadcastToSession(sessionId, analyticsPayload);
+
+    for await (const event of this.conversation.replyStream(updatedSession)) {
+      if (event.type === 'delta') {
+        yield { type: 'delta', delta: event.delta };
+      } else {
+        const buyerWordCount = event.content.trim()
+          ? event.content.trim().split(/\s+/).length
+          : 0;
+        const buyerMessage: Message = {
+          id: crypto.randomUUID(),
+          role: 'buyer',
+          content: event.content.trim(),
+          timestamp: new Date().toISOString(),
+          wordCount: buyerWordCount,
+        };
+        const finalMessages = [...updatedSession.messages, buyerMessage];
+        this.storage.updateSession(sessionId, { messages: finalMessages });
+
+        const talkRatioPayload = this.analytics.compute(
+          finalMessages,
+          lastSellerIndex,
+          event.interestPercent,
+        );
+        this.analyticsGateway.broadcastToSession(sessionId, talkRatioPayload);
+
+        yield { type: 'done', message: buyerMessage };
+      }
+    }
+  }
+
   async endSession(sessionId: string): Promise<Evaluation> {
     const session = this.storage.getSessionById(sessionId);
     if (!session) {

@@ -52,6 +52,107 @@ export class ConversationService {
     return this.parseBuyerReply(raw);
   }
 
+  /**
+   * Streams the buyer reply token-by-token. Yields content deltas then a final
+   * done event with parsed content and interest. The INTEREST: line is not
+   * included in streamed content.
+   */
+  async *replyStream(
+    session: Session,
+  ): AsyncGenerator<
+    | { type: 'delta'; delta: string }
+    | { type: 'done'; content: string; interestPercent: number | null }
+  > {
+    const system = buildBuyerSystemPrompt(
+      session.scenario.persona,
+      session.scenario.context,
+    );
+    const messages: { role: 'user' | 'assistant'; content: string }[] = [];
+    for (const m of session.messages) {
+      if (m.role === 'seller')
+        messages.push({ role: 'user', content: m.content });
+      else messages.push({ role: 'assistant', content: m.content });
+    }
+
+    if (!this.anthropic) {
+      throw new Error('Anthropic not configured. Set ANTHROPIC_API_KEY.');
+    }
+
+    const stream = this.anthropic.messages.stream({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 200,
+      system,
+      messages: messages.map((m) => ({ role: m.role, content: m.content })),
+    });
+
+    let accumulated = '';
+    let emittedUpTo = 0;
+    const interestMarker = /\nINTEREST:\s*\d+\s*$/i;
+
+    type StreamEvent =
+      | { type: 'delta'; delta: string }
+      | { type: 'done'; content: string; interestPercent: number | null };
+    const queue: StreamEvent[] = [];
+    let resolveNext: (v: StreamEvent) => void = () => {};
+
+    const next = (): Promise<StreamEvent> => {
+      return new Promise((resolve) => {
+        if (queue.length > 0) {
+          resolve(queue.shift()!);
+          return;
+        }
+        resolveNext = resolve;
+      });
+    };
+
+    const pushAndWake = (event: StreamEvent) => {
+      queue.push(event);
+      if (resolveNext) {
+        const r = resolveNext;
+        resolveNext = () => {};
+        r(queue.shift()!);
+      }
+    };
+
+    stream.on('text', (delta: string) => {
+      accumulated += delta;
+      const match = accumulated.match(interestMarker);
+      if (match) {
+        const contentEnd = accumulated.length - match[0].length;
+        if (contentEnd > emittedUpTo) {
+          const toEmit = accumulated.slice(emittedUpTo, contentEnd).trimEnd();
+          if (toEmit) pushAndWake({ type: 'delta', delta: toEmit });
+        }
+        emittedUpTo = Infinity;
+      } else if (emittedUpTo !== Infinity) {
+        pushAndWake({ type: 'delta', delta });
+        emittedUpTo = accumulated.length;
+      }
+    });
+
+    stream.finalMessage().then(
+      (message) => {
+        const text = message.content.find((b) => b.type === 'text');
+        const raw = text && 'text' in text ? text.text : '';
+        const { content, interestPercent } = this.parseBuyerReply(raw);
+        pushAndWake({ type: 'done', content, interestPercent });
+      },
+      () => {
+        pushAndWake({
+          type: 'done',
+          content: '',
+          interestPercent: null,
+        });
+      },
+    );
+
+    while (true) {
+      const event = await next();
+      yield event;
+      if (event.type === 'done') break;
+    }
+  }
+
   private parseBuyerReply(raw: string): {
     content: string;
     interestPercent: number | null;

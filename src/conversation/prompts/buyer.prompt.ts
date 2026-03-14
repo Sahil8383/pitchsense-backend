@@ -38,6 +38,7 @@ export function buildBuyerSystemPrompt(
     `- Ask occasional questions.`,
     `- Push back or show skepticism at least once.`,
     `- Stay in character.`,
+    `- For non-verbal actions (e.g. hanging up, pausing, checking watch), write them in asterisks on their own, e.g. *hangs up* or *checks watch*.`,
 
     `## Output Format`,
     `After every reply, add this line exactly:`,
