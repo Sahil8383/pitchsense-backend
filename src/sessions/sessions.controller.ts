@@ -8,18 +8,6 @@ export class SessionsController {
   constructor(private readonly sessionsService: SessionsService) {}
 
   @Post(':sessionId/messages')
-  async sendMessage(
-    @Param('sessionId') sessionId: string,
-    @Body() dto: SendMessageDto,
-  ) {
-    const message = await this.sessionsService.sendMessage(
-      sessionId,
-      dto.content,
-    );
-    return { message };
-  }
-
-  @Post(':sessionId/messages/stream')
   async sendMessageStream(
     @Param('sessionId') sessionId: string,
     @Body() dto: SendMessageDto,
