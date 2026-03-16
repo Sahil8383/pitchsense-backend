@@ -1,98 +1,151 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# PitchSense — Backend
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+NestJS backend for **PitchSense AI**: sales pitch practice and evaluation. It provides scenarios, sessions, streaming AI buyer replies (Anthropic Claude), real-time analytics over WebSockets, and post-session evaluations.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## Setup
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+### Prerequisites
 
-## Project setup
+- **Node.js** 20+
+- **pnpm** (or npm/yarn)
 
-```bash
-$ pnpm install
+### Environment
+
+Create a `.env` in the project root (or set in the shell):
+
+| Variable            | Required         | Description                                                 |
+| ------------------- | ---------------- | ----------------------------------------------------------- | ----------------------- |
+| `ANTHROPIC_API_KEY` | **Yes** (for AI) | Anthropic API key for Claude (buyer replies and evaluation) |
+| `PORT`              | No               | HTTP port                                                   | `3001`                  |
+| `CORS_ORIGIN`       | No               | Allowed origin for CORS                                     | `http://localhost:3000` |
+
+Example:
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+PORT=3001
+CORS_ORIGIN=http://localhost:3000
 ```
 
-## Compile and run the project
+### Install and run
 
 ```bash
-# development
-$ pnpm run start
-
-# watch mode
-$ pnpm run start:dev
-
-# production mode
-$ pnpm run start:prod
+pnpm install
+pnpm run start:dev
 ```
 
-## Run tests
+The API is at `http://localhost:3001` with global prefix **`/api`**. The WebSocket gateway is at path **`/ws`** (same host, no `/api` prefix).
 
-```bash
-# unit tests
-$ pnpm run test
+### Scripts
 
-# e2e tests
-$ pnpm run test:e2e
+| Command               | Description              |
+| --------------------- | ------------------------ |
+| `pnpm run start`      | Start once               |
+| `pnpm run start:dev`  | Start in watch mode      |
+| `pnpm run start:prod` | Run compiled `dist/main` |
+| `pnpm run build`      | Compile to `dist/`       |
+| `pnpm run test`       | Unit tests               |
+| `pnpm run test:e2e`   | E2E tests                |
+| `pnpm run lint`       | ESLint                   |
 
-# test coverage
-$ pnpm run test:cov
-```
+---
 
-## Deployment
+## API overview
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+All HTTP routes are under **`/api`**.
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+### Scenarios
 
-```bash
-$ pnpm install -g @nestjs/mau
-$ mau deploy
-```
+| Method | Path                 | Description                                                            |
+| ------ | -------------------- | ---------------------------------------------------------------------- |
+| `POST` | `/api/scenarios`     | Create scenario (persona, context, rubric). Body: `CreateScenarioDto`. |
+| `GET`  | `/api/scenarios/:id` | Get scenario by id.                                                    |
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+### Sessions
 
-## Resources
+| Method | Path                                  | Description                                                     |
+| ------ | ------------------------------------- | --------------------------------------------------------------- |
+| `POST` | `/api/scenarios/:scenarioId/sessions` | Create a new session for the scenario.                          |
+| `POST` | `/api/sessions/:sessionId/messages`   | Send seller message; response is **NDJSON stream** (see below). |
+| `POST` | `/api/sessions/:sessionId/end`        | End session and generate evaluation. Returns `Evaluation`.      |
 
-Check out a few resources that may come in handy when working with NestJS:
+### Evaluations
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+| Method | Path                                  | Description                             |
+| ------ | ------------------------------------- | --------------------------------------- |
+| `GET`  | `/api/sessions/:sessionId/evaluation` | Get evaluation for a completed session. |
 
-## Support
+### Streaming messages (`POST .../messages`)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+- **Request body:** `{ "content": "string" }`
+- **Response:** `Content-Type: application/x-ndjson`; each line is a JSON object:
+  - `{ "type": "delta", "delta": "..." }` — chunk of buyer reply text
+  - `{ "type": "done", "message": Message }` — final buyer message
+  - `{ "type": "error", "error": "..." }` — stream error
 
-## Stay in touch
+### WebSocket (`/ws`)
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+- **Path:** `ws://localhost:3001/ws` (or `wss://` when using HTTPS).
+- **Client sends:** `{ "event": "subscribe", "data": { "sessionId": "<id>" } }` (Nest uses `SubscribeMessage('subscribe')` with payload `{ sessionId }`).
+- **Server sends:** `{ "event": "analytics", "data": AnalyticsPayload }` — real-time analytics (filler words, talk ratio, monologue flag, buyer interest).
 
-## License
+---
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+## Architecture overview
+
+- **Framework:** NestJS 11, TypeScript, Express; WebSockets via `@nestjs/websockets` and `@nestjs/platform-ws`.
+- **Storage:** In-memory only (`StorageService` with `Map`s). No database; data is lost on restart.
+- **AI:** Anthropic SDK; Claude used for buyer replies (streaming) and for generating evaluations (rubric-based scores and feedback).
+- **Modules:** Storage, Scenarios, Sessions, Evaluations, Conversation (AI), Analytics (compute + gateway).
+
+### Module layout
+
+| Module               | Role                                                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `StorageModule`      | In-memory store for scenarios, sessions, evaluations.                                                               |
+| `ScenariosModule`    | Create / get scenario.                                                                                              |
+| `SessionsModule`     | Create session, stream messages, end session. Uses `ConversationService` and `AnalyticsService`/`AnalyticsGateway`. |
+| `EvaluationsModule`  | Get evaluation by session id.                                                                                       |
+| `ConversationModule` | Buyer reply (streaming) and evaluation generation via Claude.                                                       |
+| `AnalyticsModule`    | Filler-word and talk-ratio computation; WebSocket broadcast to session subscribers.                                 |
+
+### Request flow (high level)
+
+1. **Create scenario** → `ScenariosService` → `StorageService.createScenario`.
+2. **Create session** → `SessionsService.createSession` → load scenario, create session in storage.
+3. **Send message** → `SessionsService.sendMessageStream`: append seller message, run analytics, broadcast WS; stream buyer reply via `ConversationService.replyStream`; append buyer message, broadcast again, yield `done`.
+4. **End session** → `SessionsService.endSession`: mark completed, call `ConversationService.generateEvaluation`, store evaluation, return it.
+5. **Get evaluation** → `EvaluationsService.findBySessionId` → read from storage.
+
+---
+
+## Design decisions
+
+- **Global `/api` prefix:** Keeps HTTP API clearly namespaced; WebSocket stays at `/ws` for simple client URLs.
+- **NDJSON for message stream:** Allows incremental delivery of buyer text and a final `done` event without custom binary protocol; easy to consume with `fetch` + body reader and split by newline.
+- **WebSocket for analytics only:** Real-time metrics (filler words, talk ratio, monologue, interest) are pushed so the UI can update live without polling; chat history remains request/response and streamed NDJSON.
+- **In-memory storage:** Simplifies deployment and avoids DB setup; suitable for a demo or single-user use. Persistence can be added behind `StorageService` later.
+- **Anthropic-only for AI:** Buyer and evaluation prompts are tuned for Claude; a single provider keeps prompt and model logic in one place. Supporting other providers would be a separate adapter layer.
+- **Global validation pipe and exception filter:** DTOs and `class-validator` keep input validation consistent; `HttpExceptionFilter` returns a uniform error shape for the frontend.
+
+---
+
+## Technical trade-offs
+
+- **No persistence:** Restart wipes all data. Acceptable for a demo; production would use a database and possibly separate evaluation job queue.
+- **No auth:** No API keys or user context; any client that can reach the server can create scenarios and sessions. Fine for local or single-tenant demo.
+- **Synchronous evaluation on end:** Evaluation is generated inside `endSession`. For very long conversations this could make the request slow; with more time we’d consider a job queue and polling or WebSocket for “evaluation ready.”
+- **Single process:** WebSocket subscriptions are per-process. Horizontal scaling would require a shared pub/sub (e.g. Redis) for analytics broadcasts.
+
+---
+
+## What I’d improve with more time
+
+- **Database:** Persist scenarios, sessions, and evaluations (e.g. PostgreSQL or SQLite) and add a simple scenario/session list API.
+- **Auth:** API key or JWT and user-scoped resources so multiple users can have their own scenarios and sessions.
+- **Async evaluation:** On `endSession`, enqueue evaluation generation and return immediately; provide a “evaluation status” or WebSocket event when ready.
+- **Structured logging and health:** Request IDs, structured logs, and a `/health` (or `/api/health`) endpoint for deployment and debugging.
+- **Tests:** More unit tests for `AnalyticsService`, `ConversationService` (with mocked Anthropic), and E2E tests for the main API flows.
+- **Rate limiting and timeouts:** Protect the AI endpoints and avoid long-running requests without limits.
